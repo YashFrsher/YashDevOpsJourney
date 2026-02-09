@@ -1,0 +1,334 @@
+Question 1: The Nautilus DevOps team is diving into Kubernetes for application management. One team member has a task to create a pod according to the details below:
+Create a pod named pod-httpd using the httpd image with the latest tag. Ensure to specify the tag as httpd:latest.
+Set the app label to httpd_app, and name the container as httpd-container.
+
+Solution:
+Created pod.yaml manifest with the below content
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-httpd
+  labels:
+    app: httpd_app
+spec:
+  containers:
+    - name: httpd-container
+      image: httpd:latest
+
+run kubectl create -f pods.yaml
+run watch kubectl get pods
+wait till pod is in running state
+
+Question 2: The Nautilus DevOps team is delving into Kubernetes for app management. One team member needs to create a deployment following these details:
+Create a deployment named nginx to deploy the application nginx using the image nginx:latest (ensure to specify the tag)
+
+Solution:
+Create the deployment using imperative way
+run the command: kubectl create deployment nginx --image=nginx:latest
+run watch kubectl get deployment and wait for deployment to be ready.
+
+Question 3: The Nautilus DevOps team is planning to deploy some micro services on Kubernetes platform. The team has already set up a Kubernetes cluster and now they want to set up some namespaces, deployments etc. Based on the current requirements, the team has shared some details as below:
+Create a namespace named dev and deploy a POD within it. Name the pod dev-nginx-pod and use the nginx image with the latest tag. Ensure to specify the tag as nginx:latest.
+
+Solution:
+Create the namespace -> kubectl create namespace dev
+Check if the namespace is created -> kubectl get namespace | grep dev
+Create and deploy the pod in the dev namespace -> kubectl run dev-nginx-pod --image nginx:latest --namespace dev
+Check if the pod is running -> kubectl get pods --namespace dev
+
+Question 4: The Nautilus DevOps team has noticed performance issues in some Kubernetes-hosted applications due to resource constraints. To address this, they plan to set limits on resource utilization. Here are the details:
+Create a pod named httpd-pod with a container named httpd-container. Use the httpd image with the latest tag (specify as httpd:latest). Set the following resource limits:
+Requests: Memory: 15Mi, CPU: 100m  --> this is what the pod needs for minimum
+Limits: Memory: 20Mi, CPU: 100m  --> this is the max limit the pod will use in the cluster.
+
+Solution:
+Created pods.yaml with this content
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: httpd-pod
+spec:
+  containers:
+  - name: httpd-container
+    image: httpd:latest
+    resources:
+      requests:
+        memory: "15Mi"
+        cpu: "100m"
+      limits:
+        memory: "20Mi"
+        cpu: "100m"
+
+run kubectl create -f pods.yaml
+
+Question 5: An application currently running on the Kubernetes cluster employs the nginx web server. The Nautilus application development team has introduced some recent changes that need deployment. They've crafted an image nginx:1.19 with the latest updates.
+Execute a rolling update for this application, integrating the nginx:1.19 image. The deployment is named nginx-deployment.
+Ensure all pods are operational post-update.
+
+Solution:
+Check the update strategy type. In this case it was rollingupdate with 25% pod will be un-available -> RollingUpdateStrategy:  25% max unavailable, 25% max surge
+Using the imperative way of setting the new image -> kubectl set image deployment/nginx-deployment nginx-container=nginx:1.19
+Check if the deployment pods are up and running
+we can also see the logs how pods went down and new pods came because of replicaset and strategy 
+Logs:
+Events:
+  Type    Reason             Age    From                   Message
+  ----    ------             ----   ----                   -------
+  Normal  ScalingReplicaSet  3m58s  deployment-controller  Scaled up replica set nginx-deployment-989f57c54 to 3
+  Normal  ScalingReplicaSet  34s    deployment-controller  Scaled up replica set nginx-deployment-dc49f85cc to 1
+  Normal  ScalingReplicaSet  25s    deployment-controller  Scaled down replica set nginx-deployment-989f57c54 to 2 from 3
+  Normal  ScalingReplicaSet  25s    deployment-controller  Scaled up replica set nginx-deployment-dc49f85cc to 2 from 1
+  Normal  ScalingReplicaSet  23s    deployment-controller  Scaled down replica set nginx-deployment-989f57c54 to 1 from 2
+  Normal  ScalingReplicaSet  23s    deployment-controller  Scaled up replica set nginx-deployment-dc49f85cc to 3 from 2
+  Normal  ScalingReplicaSet  21s    deployment-controller  Scaled down replica set nginx-deployment-989f57c54 to 0 from 1
+
+Question 6: Earlier today, the Nautilus DevOps team deployed a new release for an application. However, a customer has reported a bug related to this recent release. Consequently, the team aims to revert to the previous version.
+There exists a deployment named nginx-deployment; initiate a rollback to the previous revision.
+
+Solution:
+Before rollbacking to the previous deployment. Check how many revision are present -> kubectl rollout history deployment/nginx-deployment
+In our case there are 2 revision
+REVISION  CHANGE-CAUSE
+1         <none>
+2         kubectl set image deployment nginx-deployment nginx-container=nginx:stable --kubeconfig=/root/.kube/config --record=true -- this is the current state of the deployment
+
+Now rollback to prevision revision -> kubectl rollout undo deployment/nginx-deployment
+Check the revision again. This will create a new revision and the first revision will get removed.
+deployment.apps/nginx-deployment 
+REVISION  CHANGE-CAUSE
+2         kubectl set image deployment nginx-deployment nginx-container=nginx:stable --kubeconfig=/root/.kube/co
+nfig --record=true
+3         <none>  -- this is the current state of the deployment
+
+You can also use -> kubectl describe deployment nginx-deployment and check the annotation section for revision details.
+
+Question 7: The Nautilus DevOps team is gearing up to deploy applications on a Kubernetes cluster for migration purposes. A team member has been tasked with creating a ReplicaSet outlined below:
+Create a ReplicaSet using nginx image with latest tag (ensure to specify as nginx:latest) and name it nginx-replicaset.
+Apply labels: app as nginx_app, type as front-end.
+Name the container nginx-container. Ensure the replica count is 4.
+
+Solution:
+Create the replicaset.yaml file with the below content
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: nginx-replicaset
+  labels:
+    app: nginx_app
+    type: front-end
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: nginx_app  -- here we are matching the pods label. So the pod template which is part of this replicaset yaml file will be the part of replicaset.
+      type: front-end 
+  template:
+    metadata:
+      labels:
+        app: nginx_app
+        type: front-end
+    spec:
+      containers:
+         - name: nginx-container
+           image: nginx:latest
+
+run kubectl create -f replicaset.yaml
+run kubectl get replicasets
+run kubectl get pods  -- to see 4 pod replicas having the name as replicasets.
+NAME                     READY   STATUS    RESTARTS   AGE
+nginx-replicaset-575lc   1/1     Running   0          15s
+nginx-replicaset-8h862   1/1     Running   0          15s
+nginx-replicaset-dwbsw   1/1     Running   0          15s
+nginx-replicaset-vz8rx   1/1     Running   0          15s
+
+
+Question 8: The Nautilus DevOps team is setting up recurring tasks on different schedules. Currently, they're developing scripts to be executed periodically. To kickstart the process, they're creating cron jobs in the Kubernetes cluster with placeholder commands. Follow the instructions below:
+Create a cronjob named xfusion.
+Set Its schedule to something like */11 * * * *. You can set any schedule for now.
+Name the container cron-xfusion.
+Utilize the nginx image with latest tag (specify as nginx:latest).
+Execute the dummy command echo Welcome to xfusioncorp!.
+Ensure the restart policy is OnFailure.
+
+Solution:
+Create cronjob.yaml file with the below content
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: xfusion
+spec:
+  schedule: "*/11 * * * *"  --> this cronjob will run in every 11 mins.
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: cron-xfusion
+            image: nginx:latest
+            imagePullPolicy: IfNotPresent
+            command:
+            - /bin/sh
+            - -c
+            - echo Welcome to xfusioncorp!
+          restartPolicy: OnFailure
+
+run kubectl create -f cronjob.yaml
+run kubectl get cronjob
+
+
+Question 9: The Nautilus DevOps team is crafting jobs in the Kubernetes cluster. While they're developing actual scripts/commands, they're currently setting up templates and testing jobs with dummy commands. Please create a job template as per details given below:
+Create a job named countdown-nautilus.
+The spec template should be named countdown-nautilus (under metadata), and the container should be named container-countdown-nautilus
+Utilize image debian with latest tag (ensure to specify as debian:latest), and set the restart policy to Never.
+Execute the command sleep 5.
+
+Solution:
+Create a yaml job.yaml and add the below content
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: countdown-nautilus
+spec:
+  template:
+    metadata:
+      name: countdown-nautilus
+    spec:
+      containers:
+      - name: container-countdown-nautilus
+        image: debian:latest
+        command: ["/bin/sh", "-c", "sleep 5"]
+      restartPolicy: Never
+  backoffLimit: 4
+
+This job will run for 5 sec and then we will see the completion status
+run kubectl get job and wait till the status completion is done.
+
+
+Question 10: The Nautilus DevOps team needs a time check pod created in a specific Kubernetes namespace for logging purposes. Initially, it's for testing, but it may be integrated into an existing cluster later. Here's what's required:
+
+Create a pod called time-check in the devops namespace. The pod should contain a container named time-check, utilizing the busybox image with the latest tag (specify as busybox:latest).
+Create a config map named time-config with the data TIME_FREQ=12 in the same namespace.
+Configure the time-check container to execute the command: while true; do date; sleep $TIME_FREQ;done. Ensure the result is written /opt/itadmin/time/time-check.log. Also, add an environmental variable TIME_FREQ in the container, fetching its value from the config map TIME_FREQ key.
+Create a volume log-volume and mount it at /opt/itadmin/time within the container.
+
+Solution
+Create namespace and switch to that namespace
+kubectl create ns devops
+kubectl config set-context --current --namespace=devops
+kubectl config view --minify | grep namespace:
+
+Create a configmap.yaml using this content
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: time-config
+data:
+  TIME_FREQ: "12"
+
+run kubectl create -f configmap.yaml
+
+Create this pod.yaml and add the content
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: time-check
+spec:
+  containers:
+    - name: time-check
+      image: busybox:latest
+      command: 
+        - /bin/sh
+        - -c
+        - |
+          while true; do
+            date >> /opt/itadmin/time/time-check.log
+            sleep $TIME_FREQ
+          done
+      env:
+        - name: TIME_FREQ
+          valueFrom:
+            configMapKeyRef:
+              name: time-config
+              key: TIME_FREQ
+      volumeMounts:
+         - mountPath: /opt/itadmin/time
+           name: log-volume
+  volumes:
+    - name: log-volume
+      emptyDir:
+        sizeLimit: 50Mi
+
+run kubectl create -f pods.yaml
+run kubectl exec -it time-check -- sh and run this command in the shell : cat /opt/itadmin/time/time-check.log
+
+Question 11(Troubleshooting): A junior DevOps team member encountered difficulties deploying a stack on the Kubernetes cluster. The pod fails to start, presenting errors. Let's troubleshoot and rectify the issue promptly.
+There is a pod named webserver, and the container within it is named nginx-container, its utilizing the nginx:latest image.
+Additionally, there's a sidecar container named sidecar-container using the ubuntu:latest image.
+Identify and address the issue to ensure the pod is in the running state and the application is accessible.
+
+Solution:
+1. checked the pod status
+kubectl get pods -o wide
+NAME        READY   STATUS             RESTARTS   AGE     IP           NODE                      NOMINATED NODE   READINESS GATES
+webserver   1/2     ImagePullBackOff   0          2m33s   10.244.0.5   kodekloud-control-plane   <none>           <none>
+2. We can see there is an ImagePullBackOff error. This means that not a correct image is used.
+3. Describe the pod -> kubectl describe pod webserver. We see this log. This image is being used by nginx-container inside the pod
+Normal   BackOff    104s (x6 over 3m3s)   kubelet            Back-off pulling image "nginx:latests"
+  Warning  Failed     104s (x6 over 3m3s)   kubelet            Error: ImagePullBackOff
+4. Edit the image name and wait for the pod status. Both the containers are running.
+kubectl get pod
+NAME        READY   STATUS    RESTARTS   AGE
+webserver   2/2     Running   0          4m45s
+
+
+Question 12: An application deployed on the Kubernetes cluster requires an update with new features developed by the Nautilus application development team. The existing setup includes a deployment named nginx-deployment and a service named nginx-service. Below are the necessary changes to be implemented without deleting the deployment and service:
+1.) Modify the service nodeport from 30008 to 32165
+2.) Change the replicas count from 1 to 5
+3.) Update the image from nginx:1.18 to nginx:latest
+
+Solution:
+1. Run -> kubectl edit svc nginx-service and edit the nodeport save and quit. This will not delete the service
+2. Run -> kubectl edit deployment nginx-deployment and edit the replicas under spec section save and quit. This will not delete the service.
+3. Run -> kubectl set image deployment/nginx-deployment nginx-container=nginx:latest This will edit the deployment image.
+
+Question 13: The Nautilus DevOps team is establishing a ReplicationController to deploy multiple pods for hosting applications that require a highly available infrastructure. Follow the specifications below to create the ReplicationController:
+Create a ReplicationController using the nginx image with latest tag, and name it nginx-replicationcontroller.
+Assign labels app as nginx_app, and type as front-end. Ensure the container is named nginx-container and set the replica count to 3.
+All pods should be running state post-deployment.
+
+Solution:
+Create this replication controller yaml file
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: nginx-replicationcontroller
+spec:
+  replicas: 3
+  selector:
+    app: nginx_app
+    type: front-end
+  template:
+    metadata:
+      name: nginx
+      labels:
+        app: nginx_app
+        type: front-end
+    spec:
+      containers:
+      - name: nginx-container
+        image: nginx:latest
+
+run -> kubectl create -f replicationcontroller.yaml
+run -> watch kubectl get pods
+ensure all the pods are running
+
+Question 14: We encountered an issue with our Nginx and PHP-FPM setup on the Kubernetes cluster this morning, which halted its functionality. Investigate and rectify the issue:
+The pod name is nginx-phpfpm and configmap name is nginx-config. Identify and fix the problem.
+Once resolved, copy /home/thor/index.php file from the jump host to the nginx-container within the nginx document root. After this, you should be able to access the website using Website button on the top bar.
+
+Solution:
+1. The mountpath location of mginx container was pointing to different mountpath inside the container
+2. Changed the location to /var/www/html
+3. Copied the files from localhost to container -> kubectl cp /home/thor/index.php nginx-phpfpm:/var/www/html/ -c nginx-container
