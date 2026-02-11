@@ -1,0 +1,290 @@
+Question 1: There is an application that needs to be deployed on Kubernetes cluster under Apache web server. The Nautilus application development team has asked the DevOps team to deploy it. We need to develop a template as per requirements mentioned below:
+
+1. Create a namespace named as httpd-namespace-xfusion.
+2. Create a deployment named as httpd-deployment-xfusion under newly created namespace. For the deployment use httpd image with latest tag only and remember to mention the tag i.e httpd:latest, and make sure replica counts are 2.
+3. Create a service named as httpd-service-xfusion under same namespace to expose the deployment, nodePort should be 30004.
+
+Solution:
+1. Create the namespace -> kubectl create namespace httpd-namespace-xfusion
+2. Create a YAMl with this content
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: httpd-deployment-xfusion
+  namespace: httpd-namespace-xfusion
+  labels:
+    app: httpd
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: httpd
+  template:
+    metadata:
+      labels:
+        app: httpd
+    spec:
+      containers:
+      - name: httpd-container
+        image: httpd:latest
+        ports:
+        - containerPort: 80
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: httpd-service-xfusion
+  namespace: httpd-namespace-xfusion
+spec:
+  type: NodePort
+  selector:
+    app: httpd
+  ports:
+    - port: 80
+      nodePort: 30004
+3. Apply the changes -> kubectl create -f deployment.yaml
+4. Wait for all the resource to be running
+5. Check the endpoints are registered in the service
+6. Done
+
+Question 2(need to check): The Nautilus DevOps team want to deploy a PHP website on Kubernetes cluster. They are going to use Apache as a web server and Mysql for database. The team had already gathered the requirements and now they want to make this website live. Below you can find more details:
+
+1) Create a config map php-config for php.ini with variables_order = "EGPCS" data.
+2) Create a deployment named lamp-wp.
+3) Create two containers under it. First container must be httpd-php-container using image webdevops/php-apache:alpine-3-php7 and second container must be mysql-container from image mysql:5.6. Mount php-config configmap in httpd container at /opt/docker/etc/php/php.ini location.
+4) Create kubernetes generic secrets for mysql related values like myql root password, mysql user, mysql password, mysql host and mysql database. Set any values of your choice.
+5) Add some environment variables for both containers:
+a) MYSQL_ROOT_PASSWORD, MYSQL_DATABASE, MYSQL_USER, MYSQL_PASSWORD and MYSQL_HOST. Take their values from the secrets you created. Please make sure to use env field (do not use envFrom) to define the name-value pair of environment variables.
+6) Create a node port type service lamp-service to expose the web application, nodePort must be 30008.
+7) Create a service for mysql named mysql-service and its port must be 3306.
+8) We already have /tmp/index.php file on jump_host server.
+a) Copy this file into httpd container under Apache document root i.e /app and replace the dummy values for mysql related variables with the environment variables you have set for mysql related parameters. Please make sure you do not hard code the mysql related details in this file, you must use the environment variables to fetch those values.
+b) You must be able to access this index.php on node port 30008 at the end, please note that you should see Connected successfully message while accessing this page.
+
+Solution:
+Few challengs i faced before 
+All the values in the secrest should be base64 endcoded. They are encoded not encrypted.
+
+echo -n "mysqlrootpassword" | base64
+bXlzcWxyb290cGFzc3dvcmQ=
+thor@jumphost ~$ echo -n "mysqluser" | base64
+bXlzcWx1c2Vy
+thor@jumphost ~$ echo -n "mysqlpassword" | base64
+bXlzcWxwYXNzd29yZA==
+thor@jumphost ~$ echo -n "mysql-service" | base64
+bXlzcWwtc2VydmljZQ==
+thor@jumphost ~$ echo -n "mysqldatabase" | base64
+bXlzcWxkYXRhYmFzZQ==
+
+
+Full Deployment file which can be used directly
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: php-config
+data:
+  php.ini: |
+     variables_order = "EGPCS"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-secret
+data:
+  MYSQL_ROOT_PASSWORD: bXlzcWxyb290cGFzc3dvcmQ=
+  MYSQL_USER: bXlzcWx1c2Vy
+  MYSQL_PASSWORD: bXlzcWxwYXNzd29yZA==
+  MYSQL_HOST: bXlzcWwtc2VydmljZQ==
+  MYSQL_DATABASE: bXlzcWxkYXRhYmFzZQ==
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lamp-wp
+  labels:
+    app: php
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: php
+      db:  mysql
+  template:
+    metadata:
+      labels:
+        app: php
+        db:  mysql
+    spec:
+      containers:
+      - name: httpd-php-container
+        image: webdevops/php-apache:alpine-3-php7
+        env:
+         - name: MYSQL_ROOT_PASSWORD
+           valueFrom:
+             secretKeyRef:
+               name: mysql-secret
+               key: MYSQL_ROOT_PASSWORD
+         - name: MYSQL_DATABASE
+           valueFrom:
+             secretKeyRef:
+               name: mysql-secret
+               key: MYSQL_DATABASE
+         - name: MYSQL_USER
+           valueFrom:
+             secretKeyRef:
+               name: mysql-secret
+               key: MYSQL_USER
+         - name: MYSQL_PASSWORD 
+           valueFrom:
+             secretKeyRef:
+               name: mysql-secret
+               key: MYSQL_PASSWORD
+         - name: MYSQL_HOST
+           valueFrom:
+             secretKeyRef:
+               name: mysql-secret
+               key: MYSQL_HOST 
+        ports:
+        - containerPort: 80
+        volumeMounts:
+          - name: php-config
+            mountPath: /opt/docker/etc/php/php.ini
+            subPath: php.ini
+      - name: mysql-container
+        image: mysql:5.6
+        env:
+         - name: MYSQL_ROOT_PASSWORD
+           valueFrom:
+             secretKeyRef:
+               name: mysql-secret
+               key: MYSQL_ROOT_PASSWORD
+         - name: MYSQL_DATABASE
+           valueFrom:
+             secretKeyRef:
+               name: mysql-secret
+               key: MYSQL_DATABASE
+         - name: MYSQL_USER
+           valueFrom:
+             secretKeyRef:
+               name: mysql-secret
+               key: MYSQL_USER
+         - name: MYSQL_PASSWORD 
+           valueFrom:
+             secretKeyRef:
+               name: mysql-secret
+               key: MYSQL_PASSWORD
+         - name: MYSQL_HOST
+           valueFrom:
+             secretKeyRef:
+               name: mysql-secret
+               key: MYSQL_HOST
+        ports:
+           - containerPort: 3306
+      volumes:
+        - name: php-config
+          configMap:
+            name: php-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lamp-service
+spec:
+  type: NodePort
+  selector:
+    app: php
+  ports:
+    - port: 80
+      nodePort: 30008
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-service
+spec:
+  selector:
+    db: mysql
+  ports:
+    - port: 3306
+
+Apply the change -> kubectl create -f deployment.yaml
+
+Copying the files to all the three pods -> 
+kubectl cp /tmp/index.php lamp-wp-58cfb8f6d5-2zdlm:/app -c httpd-php-container
+kubectl cp /tmp/index.php lamp-wp-58cfb8f6d5-d8lcw:/app -c httpd-php-container
+kubectl cp /tmp/index.php lamp-wp-58cfb8f6d5-h7sd2:/app -c httpd-php-container
+
+Connecting to the session of the container of each pod and editing the file in /app/index.php
+-> kubectl exec lamp-wp-58cfb8f6d5-2zdlm -c httpd-php-container -i -t -- bash
+-> kubectl exec lamp-wp-58cfb8f6d5-d8lcw -c httpd-php-container -i -t -- bash
+-> kubectl exec lamp-wp-58cfb8f6d5-h7sd2 -c httpd-php-container -i -t -- bash
+
+Edited index.php
+<?php
+$dbname = getenv('MYSQL_DATABASE');  -> getting details from the env we have set using the secrets
+$dbuser = getenv('MYSQL_USER'); -> getting details from the env we have set using the secrets
+$dbpass = getenv('MYSQL_PASSWORD'); -> getting details from the env we have set using the secrets
+$dbhost = getenv('MYSQL_HOST'); -> getting details from the env we have set using the secrets
+
+$connect = mysqli_connect($dbhost, $dbuser, $dbpass) or die("Unable to Connect to '$dbhost'");
+
+$test_query = "SHOW TABLES FROM $dbname";
+$result = mysqli_query($test_query);
+
+if ($result->connect_error) {
+   die("Connection failed: " . $conn->connect_error);
+}
+  echo "Connected successfully";bash-4.3# 
+
+Check the connection after editing the file
+nc -vz mysql-service 3306 this should show as open. Do in all the three container
+
+Question 3: There are some applications that need to be deployed on Kubernetes cluster and these apps have some pre-requisites where some configurations need to be changed before deploying the app container. Some of these changes cannot be made inside the images so the DevOps team has come up with a solution to use init containers to perform these tasks during deployment. Below is a sample scenario that the team is going to test first.
+
+1. Create a Deployment named as ic-deploy-xfusion.
+2. Configure spec as replicas should be 1, labels app should be ic-xfusion, template's metadata lables app should be the same ic-xfusion.
+3. The initContainers should be named as ic-msg-xfusion, use image debian with latest tag and use command '/bin/bash', '-c' and 'echo Init Done - Welcome to xFusionCorp Industries > /ic/official'. The volume mount should be named as ic-volume-xfusion and mount path should be /ic.
+4. Main container should be named as ic-main-xfusion, use image debian with latest tag and use command '/bin/bash', '-c' and 'while true; do cat /ic/official; sleep 5; done'. The volume mount should be named as ic-volume-xfusion and mount path should be /ic.
+5. Volume to be named as ic-volume-xfusion and it should be an emptyDir type.
+
+Solution:
+Create the yaml and apply
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ic-deploy-xfusion
+  labels:
+     app: ic-xfusion
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ic-xfusion
+  template:
+    metadata:
+      labels:
+         app: ic-xfusion
+    spec:
+     containers:
+      - name: ic-main-xfusion
+        image: debian:latest
+        command: ['/bin/bash','-c','while true; do cat /ic/official; sleep 5;done']
+        volumeMounts:
+          - name: ic-volume-xfusion
+            mountPath: /ic
+     initContainers:
+      - name: ic-msg-xfusion
+        image: debian:latest
+        command: ['/bin/bash','-c','echo Init Done - Welcome to xFusionCorp Industries > /ic/official']
+        volumeMounts:
+          - name: ic-volume-xfusion
+            mountPath: /ic
+     volumes:
+      - name: ic-volume-xfusion
+        emptyDir: {}
+
+Check the init container has written the file in the volume which is created.
+kubectl exec ic-deploy-xfusion-86c8d98b67-5wr9m -c ic-main-xfusion -i -t -- bash
