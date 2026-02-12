@@ -65,19 +65,18 @@ b) You must be able to access this index.php on node port 30008 at the end, plea
 
 Solution:
 Few challengs i faced before 
-All the values in the secrest should be base64 endcoded. They are encoded not encrypted.
+All the values in the secrest should be base64 endcoded. They are encoded not encrypted
 
-echo -n "mysqlrootpassword" | base64
-bXlzcWxyb290cGFzc3dvcmQ=
-thor@jumphost ~$ echo -n "mysqluser" | base64
-bXlzcWx1c2Vy
-thor@jumphost ~$ echo -n "mysqlpassword" | base64
-bXlzcWxwYXNzd29yZA==
-thor@jumphost ~$ echo -n "mysql-service" | base64
+echo -n "paswd" | base64
+cGFzd2Q=
+echo -n "lampdb" | base64
+bGFtcGRi
+echo -n "thor" | base64
+dGhvcg==
+echo -n "mjolnir123" | base64
+bWpvbG5pcjEyMw== 
+echo -n "mysql-service" | base64
 bXlzcWwtc2VydmljZQ==
-thor@jumphost ~$ echo -n "mysqldatabase" | base64
-bXlzcWxkYXRhYmFzZQ==
-
 
 Full Deployment file which can be used directly
 ---
@@ -94,11 +93,11 @@ kind: Secret
 metadata:
   name: mysql-secret
 data:
-  MYSQL_ROOT_PASSWORD: bXlzcWxyb290cGFzc3dvcmQ=
-  MYSQL_USER: bXlzcWx1c2Vy
-  MYSQL_PASSWORD: bXlzcWxwYXNzd29yZA==
+  MYSQL_ROOT_PASSWORD: cGFzd2Q=
+  MYSQL_USER: dGhvcg==
+  MYSQL_PASSWORD: bXlzcWwtc2VydmljZQ==
   MYSQL_HOST: bXlzcWwtc2VydmljZQ==
-  MYSQL_DATABASE: bXlzcWxkYXRhYmFzZQ==
+  MYSQL_DATABASE: bGFtcGRi
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -152,7 +151,7 @@ spec:
         volumeMounts:
           - name: php-config
             mountPath: /opt/docker/etc/php/php.ini
-            subPath: php.ini
+            subPath: php.ini    --- this is where i was having the issue on not using the subpath. Result of which everything in this location is getting mounted. But we specifically needed php.ini so for that reason we have provide the subpath. This tells which file to mount.
       - name: mysql-container
         image: mysql:5.6
         env:
@@ -184,9 +183,12 @@ spec:
         ports:
            - containerPort: 3306
       volumes:
-        - name: php-config
+        - name: php-config    
           configMap:
             name: php-config
+            items:
+              - key: php.ini   ---> Second issue faced here of not using the key and path for file based config map.
+                path: php.ini
 ---
 apiVersion: v1
 kind: Service
@@ -212,16 +214,7 @@ spec:
 
 Apply the change -> kubectl create -f deployment.yaml
 
-Copying the files to all the three pods -> 
-kubectl cp /tmp/index.php lamp-wp-58cfb8f6d5-2zdlm:/app -c httpd-php-container
-kubectl cp /tmp/index.php lamp-wp-58cfb8f6d5-d8lcw:/app -c httpd-php-container
-kubectl cp /tmp/index.php lamp-wp-58cfb8f6d5-h7sd2:/app -c httpd-php-container
-
-Connecting to the session of the container of each pod and editing the file in /app/index.php
--> kubectl exec lamp-wp-58cfb8f6d5-2zdlm -c httpd-php-container -i -t -- bash
--> kubectl exec lamp-wp-58cfb8f6d5-d8lcw -c httpd-php-container -i -t -- bash
--> kubectl exec lamp-wp-58cfb8f6d5-h7sd2 -c httpd-php-container -i -t -- bash
-
+Edit the index.php file with the below content
 Edited index.php
 <?php
 $dbname = getenv('MYSQL_DATABASE');  -> getting details from the env we have set using the secrets
@@ -237,10 +230,12 @@ $result = mysqli_query($test_query);
 if ($result->connect_error) {
    die("Connection failed: " . $conn->connect_error);
 }
-  echo "Connected successfully";bash-4.3# 
+  echo "Connected successfully";
 
-Check the connection after editing the file
-nc -vz mysql-service 3306 this should show as open. Do in all the three container
+Copy the file to the pod container
+kubectl cp /tmp/index.php <pod-name>:/location/in/container -c <container-name>
+
+Now your php application can connect with the MySQL database.
 
 Question 3: There are some applications that need to be deployed on Kubernetes cluster and these apps have some pre-requisites where some configurations need to be changed before deploying the app container. Some of these changes cannot be made inside the images so the DevOps team has come up with a solution to use init containers to perform these tasks during deployment. Below is a sample scenario that the team is going to test first.
 
@@ -288,3 +283,537 @@ spec:
 
 Check the init container has written the file in the volume which is created.
 kubectl exec ic-deploy-xfusion-86c8d98b67-5wr9m -c ic-main-xfusion -i -t -- bash
+
+Question 4: The Nautilus DevOps team is working on a Kubernetes template to deploy a web application on the cluster. There are some requirements to create/use persistent volumes to store the application code, and the template needs to be designed accordingly. Please find more details below:
+
+1. Create a PersistentVolume named as pv-devops. Configure the spec as storage class should be manual, set capacity to 3Gi, set access mode to ReadWriteOnce, volume type should be hostPath and set path to /mnt/sysops (this directory is already created, you might not be able to access it directly, so you need not to worry about it).
+2. Create a PersistentVolumeClaim named as pvc-devops. Configure the spec as storage class should be manual, request 1Gi of the storage, set access mode to ReadWriteOnce.
+3. Create a pod named as pod-devops, mount the persistent volume you created with claim name pvc-devops at document root of the web server, the container within the pod should be named as container-devops using image nginx with latest tag only (remember to mention the tag i.e nginx:latest).
+4. Create a node port type service named web-devops using node port 30008 to expose the web server running within the pod.
+
+Solution:
+Create the pv.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-devops
+  labels:
+    type: local
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 3Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/mnt/sysops"
+
+Create the pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-devops
+spec:
+  storageClassName: manual
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+Create the pods.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-devops
+  labels:
+    name: pvc-pod
+spec:
+  volumes:
+    - name: poddevops-pv-storage
+      persistentVolumeClaim:
+        claimName: pvc-devops
+  containers:
+    - name: container-devops
+      image: nginx:latest
+      ports:
+        - containerPort: 80
+      volumeMounts:
+        - mountPath: "/usr/share/nginx/html"
+          name: poddevops-pv-storage
+
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pod-devops-svc
+spec:
+  type: NodePort
+  selector:
+    name: pvc-pod
+  ports:
+    - port: 80
+      nodePort: 30008
+
+Create all the resource
+-> kubectl create -f pv.yaml
+-> kubectl create -f pvc.yaml
+-> kubectl create -f pods.yaml
+
+Question 5: The Nautilus DevOps team is working to deploy some tools in Kubernetes cluster. Some of the tools are licence based so that licence information needs to be stored securely within Kubernetes cluster. Therefore, the team wants to utilize Kubernetes secrets to store those secrets. Below you can find more details about the requirements:
+
+1. We already have a secret key file beta.txt under /opt location on jump host. Create a generic secret named beta, it should contain the password/license-number present in beta.txt file.
+2. Also create a pod named secret-datacenter.
+3. Configure pod's spec as container name should be secret-container-datacenter, image should be ubuntu with latest tag (remember to mention the tag with image). Use sleep command for container so that it remains in running state. Consume the created secret and mount it under /opt/games within the container.
+4. To verify you can exec into the container secret-container-datacenter, to check the secret key under the mounted path /opt/games. Before hitting the Check button please make sure pod/pods are in running state, also validation can take some time to complete so keep patience.
+
+Solution:
+Create the generic secret: kubectl create secret generic beta --from-file=/opt/beta.txt
+Create the pod.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: secret-datacenter
+spec:
+  containers:
+    - name: secret-container-datacenter
+      image: ubuntu:latest
+      command: ['/bin/sh','-c','sleep 3600;']
+      volumeMounts:
+        - name: secret-volume
+          mountPath: /opt/games
+  volumes:
+    - name: secret-volume
+      secret:
+        secretName: beta
+apply the yaml -> kubectl create -f pods.yaml
+Check inside the container the secret data is present 
+kubectl exec secret-datacenter -c secret-container-datacenter -i -t -- bash
+root@secret-datacenter:/# cd /opt/games/ 
+root@secret-datacenter:/opt/games# ls -lrth
+total 0
+lrwxrwxrwx 1 root root 15 Feb 12 05:01 beta.txt -> ..data/beta.txt
+root@secret-datacenter:/opt/games# 
+root@secret-datacenter:/opt/games# cat beta.txt 
+5ecur3
+
+Data is present
+
+Question 6: There are a number of parameters that are used by the applications. We need to define these as environment variables, so that we can use them as needed within different configs. Below is a scenario which needs to be configured on Kubernetes cluster. Please find below more details about the same.
+
+1. Create a pod named envars.
+2. Container name should be fieldref-container, use image redis preferable latest tag, use command 'sh', '-c' and args should be
+
+'while true; do
+      echo -en '/n';
+      printenv NODE_NAME POD_NAME;
+      printenv POD_IP POD_SERVICE_ACCOUNT;
+      sleep 10;
+done;'
+
+(Note: please take care of indentations)
+Define Four environment variables as mentioned below:
+a.) The first env should be named as NODE_NAME, set valueFrom fieldref and fieldPath should be spec.nodeName.
+
+b.) The second env should be named as POD_NAME, set valueFrom fieldref and fieldPath should be metadata.name.
+
+c.) The third env should be named as POD_IP, set valueFrom fieldref and fieldPath should be status.podIP.
+
+d.) The fourth env should be named as POD_SERVICE_ACCOUNT, set valueFrom fieldref and fieldPath shoulbe be spec.serviceAccountName.
+
+Set restart policy to Never.
+
+To check the output, exec into the pod and use printenv command.
+
+Solution:
+Create the yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: envars
+spec:
+  containers:
+    - name: fieldref-container
+      image: redis:latest
+      command: [ "sh", "-c"]
+      args:
+      - while true; do
+          echo -en '\n';
+          printenv NODE_NAME POD_NAME;
+          printenv POD_IP POD_SERVICE_ACCOUNT;
+          sleep 10;
+        done;
+      env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: POD_SERVICE_ACCOUNT
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.serviceAccountName
+  restartPolicy: Never
+
+apply the yaml 
+check the env inside the pod -> kubectl exec envars -c fieldref-container -i -t -- bash
+
+Question 7: The Nautilus DevOps team want to deploy a static website on Kubernetes cluster. They are going to use Nginx, phpfpm and MySQL for the database. The team had already gathered the requirements and now they want to make this website live. Below you can find more details:
+
+Create some secrets for MySQL.
+
+Create a secret named mysql-root-pass wih key/value pairs as below:
+name: password
+value: R00t
+
+Create a secret named mysql-user-pass with key/value pairs as below:
+name: username
+value: kodekloud_rin
+
+name: password
+value: LQfKeWWxWD
+
+Create a secret named mysql-db-url with key/value pairs as below:
+name: database
+value: kodekloud_db9
+
+Create a secret named mysql-host with key/value pairs as below:
+name: host
+value: mysql-service
+
+Create a config map php-config for php.ini with variables_order = "EGPCS" data.
+Create a deployment named lemp-wp.
+Create two containers under it. First container must be nginx-php-container using image webdevops/php-nginx:alpine-3-php7 and second container must be mysql-container from image mysql:5.6. Mount php-config configmap in nginx container at /opt/docker/etc/php/php.ini location.
+5) Add some environment variables for both containers:
+MYSQL_ROOT_PASSWORD, MYSQL_DATABASE, MYSQL_USER, MYSQL_PASSWORD and MYSQL_HOST. Take their values from the secrets you created. Please make sure to use env field (do not use envFrom) to define the name-value pair of environment variables.
+6) Create a node port type service lemp-service to expose the web application, nodePort must be 30008.
+7) Create a service for mysql named mysql-service and its port must be 3306.
+We already have a /tmp/index.php file on jump_host server.
+Copy this file into the nginx container under document root i.e /app and replace the dummy values for mysql related variables with the environment variables you have set for mysql related parameters. Please make sure you do not hard code the mysql related details in this file, you must use the environment variables to fetch those values.
+Once done, you must be able to access this website using Website button on the top bar, please note that you should see Connected successfully message while accessing this page.
+
+Solution:
+Create the following secrets
+kubectl create secret generic mysql-root-pass --from-literal=password=R00t
+kubectl create secret generic mysql-user-pass --from-literal=username=kodekloud_rin --from-literal=password=LQfKeWWxWD
+kubectl create secret generic mysql-db-url --from-literal=database=kodekloud_db9
+kubectl create secret generic mysql-host --from-literal=host=mysql-service
+
+Create the php.ini file
+echo -n "variables_order = "EGPCS"" > php.ini
+kubectl create configmap php-config --from-file=/home/thor/php.in
+
+Create the deployment.yaml file
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lemp-wp
+  labels:
+    app: php
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: php
+      db:  mysql
+  template:
+    metadata:
+      labels:
+        app: php
+        db:  mysql
+    spec:
+      containers:
+      - name: nginx-php-container
+        image: webdevops/php-nginx:alpine-3-php7
+        env:
+         - name: MYSQL_ROOT_PASSWORD
+           valueFrom:
+             secretKeyRef:
+               name: mysql-root-pass
+               key: password
+         - name: MYSQL_DATABASE
+           valueFrom:
+             secretKeyRef:
+               name: mysql-db-url
+               key: database
+         - name: MYSQL_USER
+           valueFrom:
+             secretKeyRef:
+               name: mysql-user-pass
+               key: username
+         - name: MYSQL_PASSWORD 
+           valueFrom:
+             secretKeyRef:
+               name: mysql-user-pass
+               key: password
+         - name: MYSQL_HOST
+           valueFrom:
+             secretKeyRef:
+               name: mysql-host
+               key: host 
+        ports:
+        - containerPort: 80
+        volumeMounts:
+          - name: php-config
+            mountPath: /opt/docker/etc/php/php.ini
+            subPath: php.ini
+      - name: mysql-container
+        image: mysql:5.6
+        env:
+         - name: MYSQL_ROOT_PASSWORD
+           valueFrom:
+             secretKeyRef:
+               name: mysql-root-pass
+               key: password
+         - name: MYSQL_DATABASE
+           valueFrom:
+             secretKeyRef:
+               name: mysql-db-url
+               key: database
+         - name: MYSQL_USER
+           valueFrom:
+             secretKeyRef:
+               name: mysql-user-pass
+               key: username
+         - name: MYSQL_PASSWORD 
+           valueFrom:
+             secretKeyRef:
+               name: mysql-user-pass
+               key: password
+         - name: MYSQL_HOST
+           valueFrom:
+             secretKeyRef:
+               name: mysql-host
+               key: host
+        ports:
+           - containerPort: 3306
+      volumes:
+        - name: php-config
+          configMap:
+            name: php-config
+            items:
+              - key: php.ini
+                path: php.ini
+
+Create the service
+apiVersion: v1
+kind: Service
+metadata:
+  name: lemp-service
+spec:
+  type: NodePort
+  selector:
+    app: php
+  ports:
+    - port: 80
+      nodePort: 30008
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-service
+spec:
+  selector:
+    db: mysql
+  ports:
+    - port: 3306
+
+Copy the file to the container after making the changes in the index.php file
+<?php
+$dbname = getenv('MYSQL_DATABASE');
+$dbuser = getenv('MYSQL_USER');
+$dbpass = getenv('MYSQL_PASSWORD');
+$dbhost = getenv('MYSQL_HOST');
+
+$connect = mysqli_connect($dbhost, $dbuser, $dbpass) or die("Unable to Connect to '$dbhost'");
+
+$test_query = "SHOW TABLES FROM $dbname";
+$result = mysqli_query($test_query);
+
+if ($result->connect_error) {
+   die("Connection failed: " . $conn->connect_error);
+}
+  echo "Connected successfully";
+
+kubectl cp index.php lemp-wp-74f7775555-zcmkf:/app -c nginx-php-container
+
+Question 8: One of the Nautilus DevOps team members was working on to update an existing Kubernetes template. Somehow, he made some mistakes in the template and it is failing while applying. We need to fix this as soon as possible, so take a look into it and make sure you are able to apply it without any issues. Also, do not remove any component from the template like pods/deployments/volumes etc.
+/home/thor/mysql_deployment.yml is the template that needs to be fixed.
+
+Solution:
+Error faced:
+kubectl create -f mysql_deployment.yml 
+Error from server (BadRequest): error when creating "mysql_deployment.yml": Service in version "v1" cannot be handled as a Service: strict decoding error: unknown field "metadata.app"
+[resource mapping not found for name: "mysql-pv" namespace: "" from "mysql_deployment.yml": no matches for kind "Persistentvolume" in version "apps/v1"
+ensure CRDs are installed first, resource mapping not found for name: "mysql-pv-claim" namespace: "" from "mysql_deployment.yml": no matches for kind "Persistentvolumeclaim" in version "apps/v1"
+ensure CRDs are installed first, error parsing mysql_deployment.yml: error converting YAML to JSON: yaml: line 28: mapping values are not allowed in this context]
+
+1. deployment apiversion was app/v1 we changed to apps/v1
+2. labels were not correctly placed so service was not able to attach with the endpoints.
+3. kind was wrong. There was spelling mistake.
+4. metadata was not correctly set on the service
+5. pv and pvc apiversion are not apps/v1 they are v1
+6. Spelling mistake matchlabels. It should be matchLabels
+7. Indentation mistake multiple area
+8. PVC request was in MB changed it to Mi
+
+After making the changes
+-> apply the changes : kubectl create -f deployment.yaml
+-> check the status of pv and pvc they should be bound
+-> check svc endpoints linked to pods ip.
+-> make sure pods are in running status
+
+Question 9: There is an iron gallery app that the Nautilus DevOps team was developing. They have recently customized the app and are going to deploy the same on the Kubernetes cluster. Below you can find more details:
+
+Create a namespace iron-namespace-xfusion
+Create a deployment iron-gallery-deployment-xfusion for iron gallery under the same namespace you created.
+:- Labels run should be iron-gallery.
+:- Replicas count should be 1.
+:- Selector's matchLabels run should be iron-gallery.
+:- Template labels run should be iron-gallery under metadata.
+:- The container should be named as iron-gallery-container-xfusion, use kodekloud/irongallery:2.0 image ( use exact image name / tag ).
+:- Resources limits for memory should be 100Mi and for CPU should be 50m.
+:- First volumeMount name should be config, its mountPath should be /usr/share/nginx/html/data.
+:- Second volumeMount name should be images, its mountPath should be /usr/share/nginx/html/uploads.
+:- First volume name should be config and give it emptyDir and second volume name should be images, also give it emptyDir.
+Create a deployment iron-db-deployment-xfusion for iron db under the same namespace.
+:- Labels db should be mariadb.
+:- Replicas count should be 1.
+:- Selector's matchLabels db should be mariadb.
+:- Template labels db should be mariadb under metadata.
+:- The container name should be iron-db-container-xfusion, use kodekloud/irondb:2.0 image ( use exact image name / tag ).
+:- Define environment, set MYSQL_DATABASE its value should be database_web, set MYSQL_ROOT_PASSWORD and MYSQL_PASSWORD value should be with some complex passwords for DB connections, and MYSQL_USER value should be any custom user ( except root ).
+:- Volume mount name should be db and its mountPath should be /var/lib/mysql. Volume name should be db and give it an emptyDir.
+Create a service for iron db which should be named iron-db-service-xfusion under the same namespace. Configure spec as selector's db should be mariadb. Protocol should be TCP, port and targetPort should be 3306 and its type should be ClusterIP.
+Create a service for iron gallery which should be named iron-gallery-service-xfusion under the same namespace. Configure spec as selector's run should be iron-gallery. Protocol should be TCP, port and targetPort should be 80, nodePort should be 32678 and its type should be NodePort.
+
+Solution:
+When i applied my previous manifest i got this error
+1. template's spec resources limits 'memory' for 'iron-gallery' deployment is not '100Mi' under namespace 'iron-namespace-xfusion'
+2. template's spec resources limits 'cpu' for 'iron-gallery' deployment is not '50m' under namespace 'iron-namespace-xfusion'
+The below are after the changes i have made
+Create 2 service yaml and 2 deployment yaml file
+1. Create the namespace: kubectl create ns iron-namespace-devops
+Create the gallery deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iron-gallery-deployment-xfusion
+  namespace: iron-namespace-xfusion
+  labels:
+    run: iron-gallery
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      run: iron-gallery
+  template:
+    metadata:
+      labels:
+        run: iron-gallery
+    spec:
+      containers:
+        - name: iron-gallery-container-xfusion
+          image: kodekloud/irongallery:2.0
+          resources:
+            limits:
+              memory: '100Mi'
+              cpu: '50m'
+          volumeMounts:
+            - name: config
+              mountPath: /usr/share/nginx/html/data
+            - name: images
+              mountPath: /usr/share/nginx/html/uploads
+      volumes:
+        - name: config
+          emptyDir: {}
+        - name: images
+          emptyDir: {} 
+
+Create the db deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iron-db-deployment-xfusion
+  namespace: iron-namespace-xfusion
+  labels:
+    db: mariadb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      db: mariadb
+  template:
+    metadata:
+     labels:
+       db: mariadb
+    spec:
+      containers:
+        - name: iron-db-container-xfusion
+          image: kodekloud/irondb:2.0
+          env:
+           - name: MYSQL_DATABASE
+             value: database_host
+           - name: MYSQL_ROOT_PASSWORD
+             value: Database@34567!23
+           - name: MYSQL_PASSWORD
+             value: Database_pass@321
+           - name: MYSQL_USER
+             value: yash
+          volumeMounts:
+            - name: db
+              mountPath: /var/lib/mysql
+      volumes:
+        - name: db
+          emptyDir: {}
+
+Create gallery service
+apiVersion: v1
+kind: Service
+metadata:
+  name: iron-gallery-service-xfusion
+  namespace: iron-namespace-xfusion
+spec:
+  type: NodePort
+  selector:
+    run: iron-gallery
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 32678
+      protocol: TCP
+
+Create db service
+apiVersion: v1
+kind: Service
+metadata:
+  name: iron-db-service-xfusion
+  namespace: iron-namespace-xfusion
+spec:
+  type: ClusterIP
+  selector:
+    db: mariadb
+  ports:
+    - port: 3306
+      targetPort: 3306
+      protocol: TCP
+
+apply all the manifest and you will see the login page 
+
+Question 10: One of the DevOps engineers was trying to deploy a python app on Kubernetes cluster. Unfortunately, due to some mis-configuration, the application is not coming up. Please take a look into it and fix the issues. Application should be accessible on the specified nodePort.
+The deployment name is python-deployment-devops, its using poroko/flask-demo-appimage. The deployment and service of this app is already deployed.
+nodePort should be 32345 and targetPort should be python flask app's default port.
+
+Solution:
+1. checked the deployment status and pods. Got to know it was a imagePullbackoff
+2. Fixed the image name as wrong name was given
+3. The service was using 8080 port instead of 5000 port for flask. Changed that
+application is running fine
