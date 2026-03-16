@@ -1,0 +1,13 @@
+# virtual environments
+csv_project/
+venv/
+
+# python cache
+__pycache__/
+*.pyc
+
+# env files
+.env
+
+# vscode
+.vscode/
